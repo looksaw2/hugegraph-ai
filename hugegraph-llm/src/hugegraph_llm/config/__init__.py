@@ -16,7 +16,20 @@
 # under the License.
 
 
-__all__ = ["huge_settings", "admin_settings", "llm_settings", "resource_path", "index_settings"]
+__all__ = [
+    "AdminConfig",
+    "HugeGraphConfig",
+    "IndexConfig",
+    "LLMConfig",
+    "PromptConfig",
+    "admin_settings",
+    "config_manager",
+    "huge_settings",
+    "index_settings",
+    "llm_settings",
+    "prompt",
+    "resource_path",
+]
 
 import os
 
@@ -24,11 +37,14 @@ from .admin_config import AdminConfig
 from .hugegraph_config import HugeGraphConfig
 from .index_config import IndexConfig
 from .llm_config import LLMConfig
+from .manager import get_config_manager
 from .prompt_config import PromptConfig
+
+config_manager = get_config_manager()
+config_manager.initialize([LLMConfig, HugeGraphConfig, AdminConfig, IndexConfig])
 
 llm_settings = LLMConfig()
 prompt = PromptConfig(llm_settings)
-prompt.ensure_yaml_file_exists()
 
 huge_settings = HugeGraphConfig()
 admin_settings = AdminConfig()

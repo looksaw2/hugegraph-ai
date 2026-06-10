@@ -19,11 +19,12 @@
 import argparse
 
 from hugegraph_llm.config import (
-    PromptConfig,
     admin_settings,
+    config_manager,
     huge_settings,
     index_settings,
     llm_settings,
+    prompt,
 )
 
 if __name__ == "__main__":
@@ -31,8 +32,6 @@ if __name__ == "__main__":
     parser.add_argument("-U", "--update", default=True, action="store_true", help="Update the config file")
     args = parser.parse_args()
     if args.update:
-        huge_settings.generate_env()
-        admin_settings.generate_env()
-        llm_settings.generate_env()
-        index_settings.generate_env()
-        PromptConfig(llm_settings).generate_yaml_file()
+        for settings in (huge_settings, admin_settings, llm_settings, index_settings):
+            config_manager.persist_current_config(settings)
+        prompt.ensure_yaml_file_exists()

@@ -15,22 +15,51 @@
 # specific language governing permissions and limitations
 # under the License.
 
-import os
-from typing import Optional
+from typing import ClassVar, Optional
 
 from .models import BaseConfig
 
 
 class IndexConfig(BaseConfig):
-    """LLM settings"""
+    """Vector index settings"""
 
-    qdrant_host: Optional[str] = os.environ.get("QDRANT_HOST", None)
-    qdrant_port: int = int(os.environ.get("QDRANT_PORT", "6333"))
-    qdrant_api_key: Optional[str] = os.environ.get("QDRANT_API_KEY") if os.environ.get("QDRANT_API_KEY") else None
+    _config_section: ClassVar[str] = "index"
+    _flat_to_nested_mapping: ClassVar[dict[str, str]] = {
+        "qdrant_host": "qdrant.host",
+        "qdrant_port": "qdrant.port",
+        "qdrant_api_key": "qdrant.api_key",
+        "milvus_host": "milvus.host",
+        "milvus_port": "milvus.port",
+        "milvus_user": "milvus.user",
+        "milvus_password": "milvus.password",
+        "cur_vector_index": "cur_vector_index",
+    }
+    _env_var_map: ClassVar[dict[str, list[str]]] = {
+        "qdrant_host": ["QDRANT_HOST"],
+        "qdrant_port": ["QDRANT_PORT"],
+        "qdrant_api_key": ["QDRANT_API_KEY"],
+        "milvus_host": ["MILVUS_HOST"],
+        "milvus_port": ["MILVUS_PORT"],
+        "milvus_user": ["MILVUS_USER"],
+        "milvus_password": ["MILVUS_PASSWORD"],
+        "cur_vector_index": ["CUR_VECTOR_INDEX"],
+    }
+    _mutable_persisted_fields: ClassVar[set[str]] = {
+        "qdrant_host",
+        "qdrant_port",
+        "milvus_host",
+        "milvus_port",
+        "milvus_user",
+        "cur_vector_index",
+    }
 
-    milvus_host: Optional[str] = os.environ.get("MILVUS_HOST", None)
-    milvus_port: int = int(os.environ.get("MILVUS_PORT", "19530"))
-    milvus_user: str = os.environ.get("MILVUS_USER", "")
-    milvus_password: str = os.environ.get("MILVUS_PASSWORD", "")
+    qdrant_host: Optional[str] = None
+    qdrant_port: int = 6333
+    qdrant_api_key: Optional[str] = None
 
-    cur_vector_index: str = os.environ.get("CUR_VECTOR_INDEX", "Faiss")
+    milvus_host: Optional[str] = None
+    milvus_port: int = 19530
+    milvus_user: str = ""
+    milvus_password: str = ""
+
+    cur_vector_index: str = "Faiss"

@@ -15,131 +15,55 @@
 # specific language governing permissions and limitations
 # under the License.
 
+from typing import Any, ClassVar
 
-import os
+from pydantic import BaseModel, ConfigDict
 
-from dotenv import dotenv_values, set_key
-from pydantic_settings import BaseSettings
-
-from hugegraph_llm.utils.log import log
-
-dir_name = os.path.dirname
-env_path = os.path.join(os.getcwd(), ".env")  # Load .env from the current working directory
+from ..manager import get_config_manager, warn_deprecated
 
 
-class BaseConfig(BaseSettings):
-    class Config:
-        env_file = env_path
-        case_sensitive = False
-        extra = "ignore"  # ignore extra fields to avoid ValidationError
-        env_ignore_empty = True
+class BaseConfig(BaseModel):
+    """Base config model backed by ConfigManager.
+
+    The class intentionally avoids pydantic-settings env-file loading and does
+    not write config files during initialization.
+    """
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True)
+
+    _config_section: ClassVar[str] = ""
+    _flat_to_nested_mapping: ClassVar[dict[str, str]] = {}
+    _env_var_map: ClassVar[dict[str, list[str]]] = {}
+    _mutable_persisted_fields: ClassVar[set[str]] = set()
+
+    def __init__(self, **data: Any) -> None:
+        manager = get_config_manager()
+        manager_values = manager.get_section_flat(self.__class__)
+        manager_values.update(data)
+        super().__init__(**manager_values)
+
+    def update_config(self, patch: dict[str, Any] | None = None) -> None:
+        manager = get_config_manager()
+        if patch is None:
+            manager.persist_current_config(self)
+        else:
+            manager.update_section(self.__class__, patch)
+        refreshed = manager.get_section_flat(self.__class__)
+        for key, value in refreshed.items():
+            setattr(self, key, value)
 
     def generate_env(self):
-        if os.path.exists(env_path):
-            log.info(
-                "%s already exists, do you want to override with the default configuration? (y/n)",
-                env_path,
-            )
-            update = input()
-            if update.lower() != "y":
-                return
-            self.update_env()
-        else:
-            config_dict = self.model_dump()
-            config_dict = {k.upper(): v for k, v in config_dict.items()}
-            with open(env_path, "w", encoding="utf-8") as f:
-                for k, v in config_dict.items():
-                    if v is None:
-                        f.write(f"{k}=\n")
-                    else:
-                        f.write(f"{k}={v}\n")
-            log.info("Generate %s successfully!", env_path)
+        warn_deprecated("generate_env")
+        self.update_config()
 
     def update_env(self):
-        config_dict = self.model_dump()
-        config_dict = {k.upper(): v for k, v in config_dict.items()}
-        env_config = dotenv_values(f"{env_path}")
-
-        # dotenv_values make None to '', while pydantic make None to None
-        # dotenv_values make integer to string, while pydantic make integer to integer
-        for k, v in config_dict.items():
-            if k in env_config:
-                if not (env_config[k] or v):
-                    continue
-                if env_config[k] == str(v):
-                    continue
-            log.info("Update %s: %s=%s", env_path, k, v)
-            set_key(env_path, k, v if v else "", quote_mode="never")
+        warn_deprecated("update_env")
+        self.update_config()
 
     def check_env(self):
-        """Synchronize configs between .env file and object.
-
-        This method performs two steps:
-        1. Updates object attributes from .env file values when they differ
-        2. Adds missing configuration items to the .env file
-        """
-        try:
-            # Read the.env file and prepare object config
-            env_config = dotenv_values(env_path)
-            config_dict = {k.upper(): v for k, v in self.model_dump().items()}
-
-            # Step 1: Update the object from .env when values differ
-            self._sync_env_to_object(env_config, config_dict)
-            # Step 2: Add missing config items to .env
-            self._sync_object_to_env(env_config, config_dict)
-        except Exception as e:
-            log.error("An error occurred when checking the .env variable file: %s", str(e))
-            raise
-
-    def _sync_env_to_object(self, env_config, config_dict):
-        """Update object attributes from .env file values when they differ."""
-        for env_key, env_value in env_config.items():
-            if env_key in config_dict:
-                obj_value = config_dict[env_key]
-                obj_value_str = str(obj_value) if obj_value is not None else ""
-
-                if env_value != obj_value_str:
-                    log.info(
-                        "Update configuration from the file: %s=%s (Original value: %s)",
-                        env_key,
-                        env_value,
-                        obj_value_str,
-                    )
-                    # Update the object attribute (using lowercase key)
-                    setattr(self, env_key.lower(), env_value)
-
-    def _sync_object_to_env(self, env_config, config_dict):
-        """Add missing configuration items to the .env file."""
-        for obj_key, obj_value in config_dict.items():
-            if obj_key not in env_config:
-                obj_value_str = str(obj_value) if obj_value is not None else ""
-                log.info(
-                    "Add configuration items to the environment variable file: %s=%s",
-                    obj_key,
-                    obj_value,
-                )
-                # Add to .env
-                set_key(env_path, obj_key, obj_value_str, quote_mode="never")
-
-    def __init__(self, **data):
-        try:
-            file_exists = os.path.exists(env_path)
-            # Step 1: Load environment variables if file exists
-            if file_exists:
-                env_config = dotenv_values(env_path)
-                for k, v in env_config.items():
-                    os.environ[k] = v
-
-            # Step 2: Init the parent class with loaded environment variables
-            super().__init__(**data)
-            # Step 3: Handle environment file operations after initialization
-            if not file_exists:
-                self.generate_env()
-            else:
-                # Synchronize configurations between the object and .env file
-                self.check_env()
-
-            log.info("The %s file was loaded. Class: %s", env_path, self.__class__.__name__)
-        except Exception as e:
-            log.error("An error occurred when initializing the configuration object: %s", str(e))
-            raise
+        warn_deprecated("check_env")
+        manager = get_config_manager()
+        manager.reload()
+        refreshed = manager.get_section_flat(self.__class__)
+        for key, value in refreshed.items():
+            setattr(self, key, value)

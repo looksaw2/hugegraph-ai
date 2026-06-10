@@ -15,18 +15,13 @@
 # specific language governing permissions and limitations
 # under the License.
 
-import os
-import sys
-from pathlib import Path
-
 import yaml
 
-from hugegraph_llm.utils.anchor import get_project_root
 from hugegraph_llm.utils.log import log
 
-dir_name = os.path.dirname
+from ..paths import prompt_yaml_path
+
 F_NAME = "config_prompt.yaml"
-yaml_file_path = os.path.join(os.getcwd(), "src/hugegraph_llm/resources/demo", F_NAME)
 
 
 class LiteralStr(str):
@@ -53,20 +48,12 @@ class BasePromptConfig:
     _language_generated: str = ""
     generate_extract_prompt_template: str = ""
 
+    def _yaml_file_path(self):
+        return prompt_yaml_path()
+
     def ensure_yaml_file_exists(self):
-        current_dir = Path.cwd().resolve()
-        project_root = get_project_root()
-        if current_dir == project_root:
-            log.info("Current working directory is the project root, proceeding to run the app.")
-        else:
-            error_msg = (
-                f"Current working directory is not the project root. "
-                f"Please run this script from the project root directory: {project_root}\n"
-                f"Current directory: {current_dir}"
-            )
-            log.error(error_msg)
-            sys.exit(1)
-        if os.path.exists(yaml_file_path):
+        yaml_file_path = self._yaml_file_path()
+        if yaml_file_path.exists():
             log.info("Loading prompt file '%s' successfully.", F_NAME)
             with open(yaml_file_path, "r", encoding="utf-8") as file:
                 data = yaml.safe_load(file)
@@ -103,8 +90,15 @@ class BasePromptConfig:
                     self.keywords_extract_prompt = self.keywords_extract_prompt_EN
                     self.doc_input_text = self.doc_input_text_EN
         else:
-            self.generate_yaml_file()
-            log.info("Prompt file '%s' doesn't exist, create it.", yaml_file_path)
+            try:
+                self.generate_yaml_file()
+                log.info("Prompt file '%s' doesn't exist, create it.", yaml_file_path)
+            except OSError as exc:
+                log.warning(
+                    "Prompt file '%s' could not be created; using package defaults in read-only mode: %s",
+                    yaml_file_path,
+                    exc,
+                )
 
     def save_to_yaml(self):
         def to_literal(val):
@@ -123,11 +117,14 @@ class BasePromptConfig:
             "_language_generated": str(self.llm_settings.language).lower().strip(),
             "generate_extract_prompt_template": to_literal(self.generate_extract_prompt_template),
         }
+        yaml_file_path = self._yaml_file_path()
+        yaml_file_path.parent.mkdir(parents=True, exist_ok=True)
         with open(yaml_file_path, "w", encoding="utf-8") as file:
             yaml.dump(data, file, allow_unicode=True, sort_keys=False, default_flow_style=False)
 
     def generate_yaml_file(self):
-        if os.path.exists(yaml_file_path):
+        yaml_file_path = self._yaml_file_path()
+        if yaml_file_path.exists():
             log.info(
                 "%s already exists, do you want to override with the default configuration? (y/n)",
                 yaml_file_path,

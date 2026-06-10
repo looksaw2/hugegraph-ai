@@ -16,16 +16,16 @@
 # under the License.
 
 import json
-import os
 from functools import partial
-from typing import Optional
+from typing import Any, Optional
 
 import gradio as gr
 import requests
-from dotenv import dotenv_values
 from requests.auth import HTTPBasicAuth
 
 from hugegraph_llm.config import huge_settings, index_settings, llm_settings
+from hugegraph_llm.config.manager import get_config_manager
+from hugegraph_llm.config.mapping import is_sensitive_path
 from hugegraph_llm.models.embeddings.litellm import LiteLLMEmbedding
 from hugegraph_llm.models.llms.litellm import LiteLLMClient
 from hugegraph_llm.utils.log import log
@@ -104,11 +104,49 @@ def test_api_connection(url, method="GET", headers=None, params=None, body=None,
     return resp.status_code
 
 
+def _persist_config_updates(config_obj: Any, updates: dict[str, Any]) -> None:
+    if not updates:
+        return
+
+    manager = get_config_manager()
+    config_class = config_obj.__class__
+    if config_class not in manager.section_by_class:
+        manager.register_config_class(config_class)
+
+    field_paths = manager.field_to_global_path[config_class]
+    persisted_patch: dict[str, Any] = {}
+    secret_values: dict[str, Any] = {}
+    for field_name, value in updates.items():
+        if field_name not in field_paths:
+            raise ValueError(f"Unknown config field: {field_name}")
+
+        setattr(config_obj, field_name, value)
+        global_path = field_paths[field_name]
+        if is_sensitive_path(global_path):
+            env_names = manager.global_env_aliases.get(global_path, [])
+            if env_names and value not in (None, ""):
+                secret_values[env_names[0]] = value
+        else:
+            persisted_patch[field_name] = value
+
+    if persisted_patch:
+        config_obj.update_config(persisted_patch)
+    if secret_values:
+        manager.update_secret_env(secret_values)
+
+    refreshed = manager.get_section_flat(config_class)
+    for field_name, value in refreshed.items():
+        setattr(config_obj, field_name, value)
+
+
+def _has_openai_role_api_key(role: str) -> bool:
+    value = getattr(llm_settings, f"openai_{role}_api_key", None)
+    return bool(str(value).strip()) if value is not None else False
+
+
 def apply_vector_engine(engine: str):
-    # Persist the vector engine selection
-    setattr(index_settings, "cur_vector_index", engine)
     try:
-        index_settings.update_env()
+        _persist_config_updates(index_settings, {"cur_vector_index": engine})
     except Exception:  # pylint: disable=W0718
         pass
     gr.Info("Configured!")
@@ -156,23 +194,23 @@ def apply_vector_engine_backend(  # pylint: disable=too-many-branches
         return -1
 
     # Persist settings after successful test
+    updates: dict[str, Any] = {"cur_vector_index": engine}
     if engine == "Milvus":
         if host is not None:
-            index_settings.milvus_host = host
+            updates["milvus_host"] = host
         if port is not None and str(port).strip():
-            index_settings.milvus_port = int(port)  # type: ignore[arg-type]
-        index_settings.milvus_user = user or ""
-        index_settings.milvus_password = password or ""
+            updates["milvus_port"] = int(port)
+        updates["milvus_user"] = user or ""
+        updates["milvus_password"] = password or ""
     elif engine == "Qdrant":
         if host is not None:
-            index_settings.qdrant_host = host
+            updates["qdrant_host"] = host
         if port is not None and str(port).strip():
-            index_settings.qdrant_port = int(port)  # type: ignore[arg-type]
-        # Empty string treated as None for api key
-        index_settings.qdrant_api_key = api_key or None
+            updates["qdrant_port"] = int(port)
+        updates["qdrant_api_key"] = api_key or None
 
     try:
-        index_settings.update_env()
+        _persist_config_updates(index_settings, updates)
     except Exception:  # pylint: disable=W0718
         pass
     gr.Info("Configured!")
@@ -182,25 +220,38 @@ def apply_vector_engine_backend(  # pylint: disable=too-many-branches
 def apply_embedding_config(arg1, arg2, arg3, origin_call=None) -> int:
     status_code = -1
     embedding_option = llm_settings.embedding_type
+    updates: dict[str, Any] = {"embedding_type": embedding_option}
     if embedding_option == "openai":
-        llm_settings.openai_embedding_api_key = arg1
-        llm_settings.openai_embedding_api_base = arg2
-        llm_settings.openai_embedding_model = arg3
-        test_url = llm_settings.openai_embedding_api_base + "/embeddings"
+        updates.update(
+            {
+                "openai_embedding_api_key": arg1,
+                "openai_embedding_api_base": arg2,
+                "openai_embedding_model": arg3,
+            }
+        )
+        test_url = arg2 + "/embeddings"
         headers = {"Authorization": f"Bearer {arg1}"}
         data = {"model": arg3, "input": "test"}
         status_code = test_api_connection(test_url, method="POST", headers=headers, body=data, origin_call=origin_call)
     elif embedding_option == "ollama/local":
-        llm_settings.ollama_embedding_host = arg1
-        llm_settings.ollama_embedding_port = int(arg2)
-        llm_settings.ollama_embedding_model = arg3
+        updates.update(
+            {
+                "ollama_embedding_host": arg1,
+                "ollama_embedding_port": int(arg2),
+                "ollama_embedding_model": arg3,
+            }
+        )
         status_code = test_api_connection(f"http://{arg1}:{arg2}", origin_call=origin_call)
     elif embedding_option == "litellm":
-        llm_settings.litellm_embedding_api_key = arg1
-        llm_settings.litellm_embedding_api_base = arg2
-        llm_settings.litellm_embedding_model = arg3
+        updates.update(
+            {
+                "litellm_embedding_api_key": arg1,
+                "litellm_embedding_api_base": arg2,
+                "litellm_embedding_model": arg3,
+            }
+        )
         status_code = test_litellm_embedding(arg1, arg2, arg3)
-    llm_settings.update_env()
+    _persist_config_updates(llm_settings, updates)
     gr.Info("Configured!")
     return status_code
 
@@ -213,10 +264,15 @@ def apply_reranker_config(
 ) -> int:
     status_code = -1
     reranker_option = llm_settings.reranker_type
+    updates: dict[str, Any] = {"reranker_type": reranker_option}
     if reranker_option == "cohere":
-        llm_settings.reranker_api_key = reranker_api_key
-        llm_settings.reranker_model = reranker_model
-        llm_settings.cohere_base_url = cohere_base_url
+        updates.update(
+            {
+                "reranker_api_key": reranker_api_key,
+                "reranker_model": reranker_model,
+                "cohere_base_url": cohere_base_url,
+            }
+        )
         headers = {"Authorization": f"Bearer {reranker_api_key}"}
         status_code = test_api_connection(
             cohere_base_url.rsplit("/", 1)[0] + "/check-api-key",
@@ -225,8 +281,12 @@ def apply_reranker_config(
             origin_call=origin_call,
         )
     elif reranker_option == "siliconflow":
-        llm_settings.reranker_api_key = reranker_api_key
-        llm_settings.reranker_model = reranker_model
+        updates.update(
+            {
+                "reranker_api_key": reranker_api_key,
+                "reranker_model": reranker_model,
+            }
+        )
         from pyhugegraph.utils.constants import Constants
 
         headers = {
@@ -238,7 +298,7 @@ def apply_reranker_config(
             headers=headers,
             origin_call=origin_call,
         )
-    llm_settings.update_env()
+    _persist_config_updates(llm_settings, updates)
     gr.Info("Configured!")
     return status_code
 
@@ -248,11 +308,6 @@ def apply_graph_config(url, name, user, pwd, gs, origin_call=None) -> int:
     if url and not (url.startswith("http://") or url.startswith("https://")):
         url = f"http://{url}"
 
-    huge_settings.graph_url = url
-    huge_settings.graph_name = name
-    huge_settings.graph_user = user
-    huge_settings.graph_pwd = pwd
-    huge_settings.graph_space = gs
     # Test graph connection (Auth)
     if gs and gs.strip():
         test_url = f"{url}/graphspaces/{gs}/graphs/{name}/schema"
@@ -261,7 +316,16 @@ def apply_graph_config(url, name, user, pwd, gs, origin_call=None) -> int:
     auth = HTTPBasicAuth(user, pwd)
     # for http api return status
     response = test_api_connection(test_url, auth=auth, origin_call=origin_call)
-    huge_settings.update_env()
+    _persist_config_updates(
+        huge_settings,
+        {
+            "graph_url": url,
+            "graph_name": name,
+            "graph_user": user,
+            "graph_pwd": pwd,
+            "graph_space": gs,
+        },
+    )
     return response
 
 
@@ -277,14 +341,18 @@ def apply_llm_config(
     llm_option = getattr(llm_settings, f"{current_llm_config}_llm_type")
     log.debug("llm option in apply_llm_config is %s", llm_option)
     status_code = -1
+    updates: dict[str, Any] = {f"{current_llm_config}_llm_type": llm_option}
 
     if llm_option == "openai":
-        setattr(llm_settings, f"openai_{current_llm_config}_api_key", api_key_or_host)
-        setattr(llm_settings, f"openai_{current_llm_config}_api_base", api_base_or_port)
-        setattr(llm_settings, f"openai_{current_llm_config}_language_model", model_name)
-        setattr(llm_settings, f"openai_{current_llm_config}_tokens", int(max_tokens))
-
-        test_url = getattr(llm_settings, f"openai_{current_llm_config}_api_base") + "/chat/completions"
+        updates.update(
+            {
+                f"openai_{current_llm_config}_api_key": api_key_or_host,
+                f"openai_{current_llm_config}_api_base": api_base_or_port,
+                f"openai_{current_llm_config}_language_model": model_name,
+                f"openai_{current_llm_config}_tokens": int(max_tokens),
+            }
+        )
+        test_url = api_base_or_port + "/chat/completions"
         data = {
             "model": model_name,
             "temperature": 0.01,
@@ -294,21 +362,28 @@ def apply_llm_config(
         status_code = test_api_connection(test_url, method="POST", headers=headers, body=data, origin_call=origin_call)
 
     elif llm_option == "ollama/local":
-        setattr(llm_settings, f"ollama_{current_llm_config}_host", api_key_or_host)
-        setattr(llm_settings, f"ollama_{current_llm_config}_port", int(api_base_or_port))
-        setattr(llm_settings, f"ollama_{current_llm_config}_language_model", model_name)
+        updates.update(
+            {
+                f"ollama_{current_llm_config}_host": api_key_or_host,
+                f"ollama_{current_llm_config}_port": int(api_base_or_port),
+                f"ollama_{current_llm_config}_language_model": model_name,
+            }
+        )
         status_code = test_api_connection(f"http://{api_key_or_host}:{api_base_or_port}", origin_call=origin_call)
 
     elif llm_option == "litellm":
-        setattr(llm_settings, f"litellm_{current_llm_config}_api_key", api_key_or_host)
-        setattr(llm_settings, f"litellm_{current_llm_config}_api_base", api_base_or_port)
-        setattr(llm_settings, f"litellm_{current_llm_config}_language_model", model_name)
-        setattr(llm_settings, f"litellm_{current_llm_config}_tokens", int(max_tokens))
-
+        updates.update(
+            {
+                f"litellm_{current_llm_config}_api_key": api_key_or_host,
+                f"litellm_{current_llm_config}_api_base": api_base_or_port,
+                f"litellm_{current_llm_config}_language_model": model_name,
+                f"litellm_{current_llm_config}_tokens": int(max_tokens),
+            }
+        )
         status_code = test_litellm_chat(api_key_or_host, api_base_or_port, model_name, int(max_tokens))
 
     gr.Info("Configured!")
-    llm_settings.update_env()
+    _persist_config_updates(llm_settings, updates)
     return status_code
 
 
@@ -428,14 +503,9 @@ def create_configs_block() -> list:
                     llm_config_input = [gr.Textbox(value="", visible=False) for _ in range(4)]
                 llm_config_button = gr.Button("Apply configuration")
                 llm_config_button.click(apply_llm_config_with_chat_op, inputs=llm_config_input)
-                # Determine whether there are Settings in the.env file
-                env_path = os.path.join(os.getcwd(), ".env")  # Load .env from the current working directory
-                env_vars = dotenv_values(env_path)
-                api_extract_key = env_vars.get("OPENAI_EXTRACT_API_KEY")
-                api_text2sql_key = env_vars.get("OPENAI_TEXT2GQL_API_KEY")
-                if not api_extract_key:
+                if not _has_openai_role_api_key("text2gql"):
                     llm_config_button.click(apply_llm_config_with_text2gql_op, inputs=llm_config_input)
-                if not api_text2sql_key:
+                if not _has_openai_role_api_key("extract"):
                     llm_config_button.click(apply_llm_config_with_extract_op, inputs=llm_config_input)
 
         with gr.Tab(label="mini_tasks"):

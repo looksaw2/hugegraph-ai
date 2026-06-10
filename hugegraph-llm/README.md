@@ -44,9 +44,11 @@ The fastest way to get started with both HugeGraph Server and RAG Service:
 # 1. Set up environment
 cp docker/env.template docker/.env
 # Edit docker/.env and set PROJECT_PATH to your actual project path
-# See "config.md" for all available configuration options
-# If there is not a configuration file (named .env) under hugegraph-llm, run the following command
-cd hugegraph-llm && touch .env && cd ..
+# Prepare HugeGraph-LLM runtime config. See "config.md" for details.
+cd hugegraph-llm
+cp config.example.yaml config.yaml
+touch .env
+cd ..
 
 # 2. Deploy services
 cd docker
@@ -79,6 +81,7 @@ docker run -itd --name=server -p 8080:8080 --network hugegraph-net hugegraph/hug
 # 3. Start RAG Service
 docker pull hugegraph/rag:latest
 docker run -itd --name rag \
+  -v /path/to/your/hugegraph-llm/config.yaml:/home/work/hugegraph-llm/config.yaml \
   -v /path/to/your/hugegraph-llm/.env:/home/work/hugegraph-llm/.env \
   -p 8001:8001 --network hugegraph-net hugegraph/rag
 
@@ -101,7 +104,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone https://github.com/apache/hugegraph-ai.git
 cd hugegraph-ai
 
-# Configure environment (see config.md for detailed options), .env will auto create if not exists
+# Configure runtime settings. See config.md for all options.
+cp hugegraph-llm/config.example.yaml hugegraph-llm/config.yaml
+touch hugegraph-llm/.env
 
 # 4. Install dependencies and activate environment
 # NOTE: If download is slow, uncomment mirror lines in ../pyproject.toml or use: uv config --global index.url https://pypi.tuna.tsinghua.edu.cn/simple
@@ -161,25 +166,33 @@ Use the Gradio interface for visual knowledge graph building:
 
 ## 🔧 Configuration
 
-After running the demo, configuration files are automatically generated:
+HugeGraph-LLM separates non-secret runtime settings from local secrets:
 
-- **Environment**: `hugegraph-llm/.env`
+- **Runtime config**: `hugegraph-llm/config.yaml`
+- **Secrets**: `hugegraph-llm/.env`
 - **Prompts**: `hugegraph-llm/src/hugegraph_llm/resources/demo/config_prompt.yaml`
+
+Create `config.yaml` from the checked-in example, then put API keys, tokens, and passwords in `.env` or process environment variables:
+
+```bash
+cp hugegraph-llm/config.example.yaml hugegraph-llm/config.yaml
+touch hugegraph-llm/.env
+```
 
 ### Language Support
 
 The system supports both English and Chinese prompts. To switch languages:
 
-1. **Edit `.env` file**: Change `LANGUAGE=en` to `LANGUAGE=CN` (or vice versa)
+1. **Edit `config.yaml`**: Change `llm.language: EN` to `llm.language: CN` (or vice versa)
 2. **Restart the application**: The system will automatically regenerate prompts in the selected language
 
 **Supported Values:**
 
-- `LANGUAGE=EN` - English prompts (default)
-- `LANGUAGE=CN` - Chinese prompts (中文提示词)
+- `llm.language: EN` - English prompts (default)
+- `llm.language: CN` - Chinese prompts (中文提示词)
 
 > [!NOTE]
-> Configuration changes are automatically saved when using the web interface. For manual changes, simply refresh the page to load updates.
+> Non-secret configuration is saved to `config.yaml`; secrets are saved to `.env`. For manual changes, restart the service to make all consumers load the same values.
 
 **LLM Provider Support**: This project uses [LiteLLM](https://docs.litellm.ai/docs/providers) for multi-provider LLM support.
 

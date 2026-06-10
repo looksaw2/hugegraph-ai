@@ -1,0 +1,95 @@
+llm:
+  language: EN
+  chat_llm_type: openai
+  extract_llm_type: openai
+  text2gql_llm_type: openai
+  embedding_type: openai
+  keyword_extract:
+    type: llm
+    window_size: 3
+    hybrid_llm_weights: 0.5
+  openai:
+    chat:
+      api_base: https://api.openai.com/v1
+      language_model: gpt-4.1-mini
+      tokens: 8192
+    extract:
+      api_base: https://api.openai.com/v1
+      language_model: gpt-4.1-mini
+      tokens: 256
+    text2gql:
+      api_base: https://api.openai.com/v1
+      language_model: gpt-4.1-mini
+      tokens: 4096
+    embedding:
+      api_base: https://api.openai.com/v1
+      model: text-embedding-3-small
+  ollama:
+    chat:
+      host: 127.0.0.1
+      port: 11434
+      language_model: null
+    extract:
+      host: 127.0.0.1
+      port: 11434
+      language_model: null
+    text2gql:
+      host: 127.0.0.1
+      port: 11434
+      language_model: null
+    embedding:
+      host: 127.0.0.1
+      port: 11434
+      model: null
+  litellm:
+    chat:
+      api_base: null
+      language_model: openai/gpt-4.1-mini
+      tokens: 8192
+    extract:
+      api_base: null
+      language_model: openai/gpt-4.1-mini
+      tokens: 256
+    text2gql:
+      api_base: null
+      language_model: openai/gpt-4.1-mini
+      tokens: 4096
+    embedding:
+      api_base: null
+      model: openai/text-embedding-3-small
+  reranker:
+    type: null
+    model: null
+  cohere:
+    base_url: https://api.cohere.com/v1/rerank
+
+hugegraph:
+  graph:
+    url: 127.0.0.1:8080
+    name: hugegraph
+    user: admin
+    space: null
+  query:
+    limit_property: "False"
+    max_graph_path: 10
+    max_graph_items: 30
+    edge_limit_pre_label: 8
+  vector:
+    dis_threshold: 0.9
+    topk_per_keyword: 1
+  rerank:
+    topk_return_results: 20
+
+admin:
+  login:
+    enable: "False"
+
+index:
+  cur_vector_index: Faiss
+  qdrant:
+    host: null
+    port: 6333
+  milvus:
+    host: null
+    port: 19530
+    user: ""

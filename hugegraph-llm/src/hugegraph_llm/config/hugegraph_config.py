@@ -15,13 +15,56 @@
 # specific language governing permissions and limitations
 # under the License.
 
-from typing import Optional
+from typing import ClassVar, Optional
 
 from .models import BaseConfig
 
 
 class HugeGraphConfig(BaseConfig):
     """HugeGraph settings"""
+
+    _config_section: ClassVar[str] = "hugegraph"
+    _flat_to_nested_mapping: ClassVar[dict[str, str]] = {
+        "graph_url": "graph.url",
+        "graph_name": "graph.name",
+        "graph_user": "graph.user",
+        "graph_pwd": "graph.pwd",
+        "graph_space": "graph.space",
+        "limit_property": "query.limit_property",
+        "max_graph_path": "query.max_graph_path",
+        "max_graph_items": "query.max_graph_items",
+        "edge_limit_pre_label": "query.edge_limit_pre_label",
+        "vector_dis_threshold": "vector.dis_threshold",
+        "topk_per_keyword": "vector.topk_per_keyword",
+        "topk_return_results": "rerank.topk_return_results",
+    }
+    _env_var_map: ClassVar[dict[str, list[str]]] = {
+        "graph_url": ["GRAPH_URL"],
+        "graph_name": ["GRAPH_NAME"],
+        "graph_user": ["GRAPH_USER"],
+        "graph_pwd": ["GRAPH_PWD"],
+        "graph_space": ["GRAPH_SPACE"],
+        "limit_property": ["LIMIT_PROPERTY"],
+        "max_graph_path": ["MAX_GRAPH_PATH"],
+        "max_graph_items": ["MAX_GRAPH_ITEMS"],
+        "edge_limit_pre_label": ["EDGE_LIMIT_PRE_LABEL"],
+        "vector_dis_threshold": ["VECTOR_DIS_THRESHOLD"],
+        "topk_per_keyword": ["TOPK_PER_KEYWORD"],
+        "topk_return_results": ["TOPK_RETURN_RESULTS"],
+    }
+    _mutable_persisted_fields: ClassVar[set[str]] = {
+        "graph_url",
+        "graph_name",
+        "graph_user",
+        "graph_space",
+        "limit_property",
+        "max_graph_path",
+        "max_graph_items",
+        "edge_limit_pre_label",
+        "vector_dis_threshold",
+        "topk_per_keyword",
+        "topk_return_results",
+    }
 
     # graph server config
     graph_url: str = "127.0.0.1:8080"
